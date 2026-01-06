@@ -8,6 +8,45 @@ import (
 	"os"
 	"strings"
 )
+type PlayerCommand int
+
+const (
+    CommandUnknown PlayerCommand = iota
+    CommandMove
+    CommandPause
+    CommandResume
+    CommandQuit
+    CommandSpawn
+    CommandStatus
+    CommandHelp
+    CommandSpam
+    // Add more as needed, e.g. CommandStatus, CommandHelp, etc.
+)
+
+var commandStrings = map[string]PlayerCommand{
+    "move":   CommandMove,
+    "pause":  CommandPause,
+    "resume": CommandResume,
+    "quit":   CommandQuit,
+    "spam":   CommandSpam,
+    "spawn":  CommandSpawn,
+    "status": CommandStatus,
+    "help":   CommandHelp,
+    // lowercase versions if you want to be forgiving
+    "m": CommandMove,
+    "p": CommandPause,
+    "r": CommandResume,
+    "q": CommandQuit,
+    "h": CommandHelp,
+}
+
+// ParseCommand converts user input to a PlayerCommand
+func ParseCommand(input string) PlayerCommand {
+    if cmd, ok := commandStrings[input]; ok {
+        return cmd
+    }
+    return CommandUnknown
+}
 
 func PrintClientHelp() {
 	fmt.Println("Possible commands:")

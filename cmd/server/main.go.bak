@@ -1,0 +1,42 @@
+package main
+
+import (
+	"fmt"
+  "os"  
+  "learn-pub-sub-starter/internal/pubsub"
+  "learn-pub-sub-starter/internal/routing"
+	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+func main() {
+  const connString = "amqp://guest:guest@localhost:5672/"
+  fmt.Println("RabbitMQ connection string:", connString)
+  conn, err := amqp.Dial(connString)
+  if err != nil {
+    // handle error
+    fmt.Println("Error opening connection: ", err)
+    return
+  }
+  defer conn.Close()
+  sigChan := make(chan os.Signal, 1)
+  chann, err := conn.Channel()
+  if err != nil {
+    errf := fmt.Errorf("%v", err)
+
+    fmt.Println("Error publishing")
+    fmt.Printf("Error: %s\n", errf)
+    return
+  }
+  var ps routing.PlayingState
+  ps.IsPaused = true
+  err = pubsub.PublishJSON(chann, string(routing.ExchangePerilDirect), string(routing.PauseKey), ps)
+  if err != nil {
+    errf := fmt.Errorf("%v", err)
+    fmt.Println("Error publishing")
+    fmt.Printf("Error: %s\n", errf)
+    return
+  }
+  fmt.Println("Waiting for termination signal (Ctrl+C to exit)...")
+  sig := <-sigChan
+  fmt.Printf("Received signal: %v. Shutting down gracefully...", sig)
+}
