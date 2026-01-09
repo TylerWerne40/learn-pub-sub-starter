@@ -21,7 +21,7 @@ func main() {
   }
   defer conn.Close()
   username, err := gamelogic.ClientWelcome()
-  pubsub.DeclareAndBind(conn, 
+  pause_chan, _, err := pubsub.DeclareAndBind(conn, 
     routing.ExchangePerilDirect, 
     routing.PauseKey + "." + username, 
     routing.PauseKey, 
@@ -38,7 +38,25 @@ func main() {
     move_queue.Name,
     routing.ArmyMovesPrefix + ".*",
     pubsub.Transient,
-    HandlerMove(gs),
+    HandlerMove(gs, move_chan),
+    )
+  _, _, err = pubsub.DeclareAndBind(
+    conn,
+    routing.ExchangePerilTopic,
+    "war",
+    routing.WarRecognitionsPrefix + ".#", 
+    pubsub.Durable,
+    )
+  if err != nil {
+    fmt.Println("war subscribe error:", err)
+  }  
+  pubsub.SubscribeJSON(
+    conn,
+    routing.ExchangePerilTopic,
+    "war",
+    routing.WarRecognitionsPrefix + ".#",
+    pubsub.Durable,
+    HandlerWar(gs),
     )
   for {
     pubsub.SubscribeJSON(
@@ -47,7 +65,7 @@ func main() {
       routing.PauseKey + "." + username,
       routing.PauseKey,
       "transient",
-      HandlerPause(gs),
+      HandlerPause(gs, pause_chan),
     )
     slice := gamelogic.GetInput()
     if len(slice) == 0 {

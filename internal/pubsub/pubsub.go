@@ -1,10 +1,20 @@
 package pubsub
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"learn-pub-sub-starter/internal/routing"
+
 	amqp "github.com/rabbitmq/amqp091-go"
-  "context"
-  "fmt"
+)
+
+type AckType int
+
+const (
+  Ack AckType = iota
+  NackRequeue
+  NAckDiscard
 )
 
 func SubscribeJSON[T any] (
@@ -13,7 +23,7 @@ func SubscribeJSON[T any] (
   queueName,
   key string,
   queueType SimpleQueueType,
-  handler func(T),
+  handler func(T) AckType,
 ) error {
   chann, queue, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
   if err != nil {
@@ -33,10 +43,19 @@ func SubscribeJSON[T any] (
         return
       }
     
-      handler(payload)
-      msg.Ack(false)
+      var ack AckType = handler(payload)
+      switch ack {
+        case Ack:
+          msg.Ack(false)
+          fmt.Println("Acknowledged!")
+        case NackRequeue:
+          msg.Nack(false, true)
+          fmt.Println("Not Acknowledged! Requeue")
+        case NAckDiscard:
+          msg.Nack(false, false)
+          fmt.Println("Not Acknowledged! Discard")
+      }
     }
-    return 
   }()
   return nil
 }
@@ -71,15 +90,18 @@ func DeclareAndBind(
     return nil, amqp.Queue{}, err // figure out amqp.Queue declaration
   }
   var queue amqp.Queue
+  args := amqp.Table{
+    "x-dead-letter-exchange": routing.ExchangePerilDlx,
+  }
   switch queueType {
   case Transient:
-    queue, err := chann.QueueDeclare(queueName, false, true, true, false, nil)
+    queue, err := chann.QueueDeclare(queueName, false, true, true, false, args)
     
     if err != nil {
       return nil, queue, err
     }
   case Durable:
-    queue, err := chann.QueueDeclare(queueName, true, false, false, false, nil) 
+    queue, err := chann.QueueDeclare(queueName, true, false, false, false, args) 
     
     if err != nil {
       return nil, queue, err
