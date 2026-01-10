@@ -37,7 +37,7 @@ func HandlerMove(gs *gamelogic.GameState, publishCh *amqp.Channel) func(gamelogi
           return pubsub.NackRequeue
         }
 
-        return pubsub.NackRequeue
+        return pubsub.Ack
 
       case gamelogic.MoveOutComeSafe:
         return pubsub.Ack
