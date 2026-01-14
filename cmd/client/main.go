@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"learn-pub-sub-starter/internal/gamelogic"
 	"learn-pub-sub-starter/internal/pubsub"
@@ -11,7 +12,8 @@ import (
 )
 
 func main() {
- const connString = "amqp://guest:guest@localhost:5672/"
+  ctx := context.Background()
+  const connString = "amqp://guest:guest@localhost:5672/"
   fmt.Println("RabbitMQ connection string:", connString)
   conn, err := amqp.Dial(connString)
   if err != nil {
@@ -40,7 +42,7 @@ func main() {
     pubsub.Transient,
     HandlerMove(gs, move_chan),
     )
-  _, _, err = pubsub.DeclareAndBind(
+  war_chan, _, err := pubsub.DeclareAndBind(
     conn,
     routing.ExchangePerilTopic,
     "war",
@@ -56,7 +58,7 @@ func main() {
     "war",
     routing.WarRecognitionsPrefix + ".#",
     pubsub.Durable,
-    HandlerWar(gs),
+    HandlerWar(ctx, gs, war_chan),
     )
   for {
     pubsub.SubscribeJSON(

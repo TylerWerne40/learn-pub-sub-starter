@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"learn-pub-sub-starter/internal/gamelogic"
 	"learn-pub-sub-starter/internal/pubsub"
 	"learn-pub-sub-starter/internal/routing"
-  amqp "github.com/rabbitmq/amqp091-go"
+	"time"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 
@@ -50,25 +53,49 @@ func HandlerMove(gs *gamelogic.GameState, publishCh *amqp.Channel) func(gamelogi
   }
 }
 
-func HandlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.AckType {
+func HandlerWar(ctx context.Context, gs *gamelogic.GameState, chann *amqp.Channel) func(gamelogic.RecognitionOfWar) pubsub.AckType {
     return func(war gamelogic.RecognitionOfWar) pubsub.AckType {
       defer fmt.Print("> ")
-      outcome, _, _ := gs.HandleWar(war) 
+      outcome, winner, loser := gs.HandleWar(war) 
+      gameLog := routing.GameLog{
+        Username:     gs.GetUsername(),
+        CurrentTime:  time.Now(),
+        Message:      "",
+      }
       switch outcome {
         case gamelogic.WarOutcomeNotInvolved:
-            return pubsub.NackRequeue
+          gameLog.Message = "Not Involved"
 
-        case gamelogic.WarOutcomeNoUnits:
-            return pubsub.NAckDiscard
+        case gamelogic.WarOutcomeNoUnits: 
+          gameLog.Message = "No Units"
 
-        case gamelogic.WarOutcomeOpponentWon,
-             gamelogic.WarOutcomeYouWon,
-             gamelogic.WarOutcomeDraw:
-            return pubsub.Ack
+        case gamelogic.WarOutcomeOpponentWon, 
+            gamelogic.WarOutcomeYouWon:
+          gameLog.Message = winner + " won a war against " + loser
+          fmt.Println(winner, " won a war against ", loser)
+        case gamelogic.WarOutcomeDraw:
+            gameLog.Message = "A war between " + winner + " and " + loser + " resulted in a draw"
+            fmt.Println("A war between ", winner, " and ", loser, " resulted in a draw")
 
         default:
-            fmt.Printf("ERROR: Unexpected war outcome: %v\n", outcome)
-            return pubsub.NAckDiscard
+          fmt.Printf("ERROR: Unexpected war outcome: %v\n", outcome)
+          gameLog.Message = fmt.Sprintf("ERROR: Unexpected war outcome:%v", outcome)
         }
+      err := publishGameLog(ctx, chann, gameLog.Username, gameLog.Message)
+      if err != nil {
+        fmt.Println("Failed to publish game log:", err)
+        return pubsub.NAckDiscard
+      }
+      return pubsub.Ack
     }
+}
+
+
+func publishGameLog(ctx context.Context, ch *amqp.Channel, username, msg string) error {
+	gameLog := routing.GameLog{
+		Username:    username,
+		CurrentTime: time.Now(),
+		Message:     msg,
+	}
+  return gamelogic.PublishGameLog(ctx, ch, gameLog)
 }

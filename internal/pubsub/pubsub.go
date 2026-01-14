@@ -1,7 +1,9 @@
 package pubsub
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"learn-pub-sub-starter/internal/routing"
@@ -17,13 +19,48 @@ const (
   NAckDiscard
 )
 
-func SubscribeJSON[T any] (
+
+func SubscribeGob[T any] (
   conn *amqp.Connection,
   exchange,
   queueName,
   key string,
   queueType SimpleQueueType,
   handler func(T) AckType,
+) error {
+  unmarshaller := func (data []byte) (T, error) {
+	  var ret T
+	  b := bytes.NewBuffer(data)
+	  decoder := gob.NewDecoder(b)
+	  err := decoder.Decode(&ret)
+	  if err != nil {
+		  return ret, err
+	  }
+	  return ret, nil
+  } 
+  err := subscribe(
+    conn,
+    exchange,
+    queueName,
+    key,
+    queueType,
+    handler,
+    unmarshaller,
+    )
+  if err != nil {
+    return fmt.Errorf("Could not Subscribe using Gob, %v\n", err)
+  }
+  return nil
+}
+
+func subscribe[T any] (
+  conn *amqp.Connection,
+  exchange,
+  queueName,
+  key string,
+  queueType SimpleQueueType,
+  handler func(T) AckType,
+  unmarshaller func([]byte) (T, error),
 ) error {
   chann, queue, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
   if err != nil {
@@ -34,13 +71,15 @@ func SubscribeJSON[T any] (
     return err
   }
   go func() {
+    
+    defer chann.Close()
     for msg := range msgs {
       var payload T
-      err = json.Unmarshal(msg.Body, &payload)
+      payload, err = unmarshaller(msg.Body)
       if err != nil {
-        fmt.Println("Failed to Unmarshall message: ", err)
+        fmt.Printf("Failed to Unmarshall message (%T): %v\n", payload, err)
         msg.Nack(false, true)
-        return
+        continue
       }
     
       var ack AckType = handler(payload)
@@ -58,7 +97,40 @@ func SubscribeJSON[T any] (
     }
   }()
   return nil
+ 
 }
+
+func SubscribeJSON[T any] (
+  conn *amqp.Connection,
+  exchange,
+  queueName,
+  key string,
+  queueType SimpleQueueType,
+  handler func(T) AckType,
+) error {
+  unmarshaller := func (data []byte) (T, error) {
+    var payload T
+    err := json.Unmarshal(data, &payload)
+    if err != nil {
+      return payload, err
+    }
+    return payload, nil 
+  }
+  err := subscribe(
+    conn,
+    exchange,
+    queueName,
+    key,
+    queueType,
+    handler,
+    unmarshaller,
+    )
+  if err != nil {
+    return fmt.Errorf("Could not subscribe to JSON: %v\n", err)
+  }
+  return nil
+}
+
 func PublishJSON[T any](ch *amqp.Channel, exchange, key string, val T) error {
   bytes, err := json.Marshal(val)
   if err != nil {
@@ -77,6 +149,26 @@ const (
   Durable SimpleQueueType = "durable"
   Transient SimpleQueueType = "transient"
 )
+
+func PublishGob[T any](ctx context.Context, ch *amqp.Channel, exchange, key string, val T) error {
+  var b bytes.Buffer
+  enc := gob.NewEncoder(&b)
+  err := enc.Encode(val)
+  if err != nil {
+    return err
+  }
+  return ch.PublishWithContext(
+    ctx,
+    exchange,
+    key,
+    false,
+    false,
+  amqp.Publishing{
+    ContentType: "application/gob",
+    Body: b.Bytes(),
+    },
+    )
+}
 
 func DeclareAndBind(
 	conn *amqp.Connection,

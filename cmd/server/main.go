@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"learn-pub-sub-starter/internal/gamelogic"
 	"learn-pub-sub-starter/internal/pubsub"
 	"learn-pub-sub-starter/internal/routing"
-  "time"
+	"time"
+
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -29,12 +31,20 @@ func main() {
     fmt.Printf("Error: %s\n", errf)
     return
   }
+  pubsub.DeclareAndBind(
+    conn,
+    routing.ExchangePerilTopic,
+    "game_logs",
+    routing.GameLogSlug + ".#",
+    pubsub.Durable,
+    )
   rGameLog := routing.GameLog{
     CurrentTime:   time.Now(),
     Message:       "Blank",
     Username:      "Uknown",
   }
-  err = pubsub.PublishJSON(
+  err = pubsub.PublishGob(
+    context.Background(),
     chann,
     string(routing.ExchangePerilTopic),
     string(routing.GameLogSlug),
@@ -43,6 +53,14 @@ func main() {
   if err != nil {
     fmt.Println("Error Publishing GameLogSlug: ", err)
   }
+  err = pubsub.SubscribeGob(
+    conn,
+    string(routing.ExchangePerilTopic),
+    "game_logs",
+    string(routing.GameLogSlug) + ".#",
+    pubsub.Durable,
+    log_handler,
+    )
   for {
     slice := gamelogic.GetInput()
     if len(slice) == 0 {
